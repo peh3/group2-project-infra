@@ -8,7 +8,6 @@ variable "prefix" {
   default     = "group2-project"
   description = "Prefix for all resources"
 }
-
 variable "name" {
   type        = string
   default     = "group2"
@@ -21,13 +20,13 @@ variable "name" {
 variable "github_repository_username" {
   description = "GitHub repository username"
   type        = string
-  default     = "peh3" #[cite: 9]
+  default     = "peh3"
 }
 
 variable "github_app_repository_name" {
   description = "GitHub repository name for application"
   type        = string
-  default     = "group2-project-app" #[cite: 9]
+  default     = "group2-project-app"
 }
 
 variable "github_infra_repository_name" {
@@ -39,5 +38,5 @@ variable "github_infra_repository_name" {
 variable "tfstate_bucket_name" {
   description = "S3 bucket storing terraform state"
   type        = string
-  default     = "sctp-tfstate-ce13" #[cite: 7]
+  default     = "sctp-tfstate-ce13"
 }

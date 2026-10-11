@@ -24,14 +24,7 @@ data "aws_iam_policy_document" "infra_trust" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # # Locked strictly to main branch of infra repo
-    # condition {
-    #   test     = "StringEquals"
-    #   variable = "token.actions.githubusercontent.com:sub"
-    #   values   = ["repo:${var.github_repository_username}/${var.github_infra_repository_name}:ref:refs/heads/main"]
-    # }
-
-     condition {
+    condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
       values   = ["repo:${var.github_repository_username}*/${var.github_infra_repository_name}*:*"]
@@ -40,7 +33,7 @@ data "aws_iam_policy_document" "infra_trust" {
 }
 
 resource "aws_iam_role" "infra_deployer_role" {
-  name               = "${var.prefix}-infra-deployer-role" # KEPT EXACT SAME NAME
+  name               = "${var.prefix}-infra-deployer-role"
   assume_role_policy = data.aws_iam_policy_document.infra_trust.json
 
   tags = {
@@ -52,12 +45,27 @@ resource "aws_iam_role" "infra_deployer_role" {
 # Scoped Terraform permissions replacing *FullAccess
 resource "aws_iam_policy" "infra_scoped_policy" {
   name        = "${var.prefix}-infra-deployer-least-privilege"
-  description = "Scoped permissions for Terraform infrastructure deployment"
+  description = "Scoped permissions for Terraform EKS infrastructure deployment"
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      # S3: Scoped to project prefix
+      # DynamoDB: State locking for Terraform backends
+      {
+        Sid    = "DynamoDBTerraformStateLocking"
+        Effect = "Allow"
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:DeleteItem",
+          "dynamodb:DescribeTable"
+        ]
+        Resource = [
+          "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/swiftkart-tflocks-*",
+          "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${var.prefix}-tflocks-*"
+        ]
+      },
+      # S3: Scoped to project prefix and backend state bucket
       {
         Sid    = "S3ScopedAccess"
         Effect = "Allow"
@@ -65,55 +73,95 @@ resource "aws_iam_policy" "infra_scoped_policy" {
           "s3:*"
         ]
         Resource = [
-          # App & infrastructure buckets
           "arn:aws:s3:::${var.prefix}-*",
           "arn:aws:s3:::${var.prefix}-*/*",
-
-          # Terraform backend bucket & state files
+          "arn:aws:s3:::swiftkart-tfstate-*",
+          "arn:aws:s3:::swiftkart-tfstate-*/*",
           "arn:aws:s3:::${var.tfstate_bucket_name}",
           "arn:aws:s3:::${var.tfstate_bucket_name}/*"
         ]
       },
-      # SQS: Scoped to project prefix
+      # EKS Cluster & Node Group Lifecycle Management
       {
-        Sid    = "SQSScopedAccess"
+        Sid    = "EKSClusterAndNodeGroupManagement"
         Effect = "Allow"
         Action = [
-          "sqs:*"
-        ]
-        Resource = "arn:aws:sqs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:${var.prefix}-*"
-      },
-      # ECS & ECR: Scoped to project prefix
-      {
-        Sid    = "ECSAndECRScopedAccess"
-        Effect = "Allow"
-        Action = [
-          "ecs:*",
-          "ecr:*"
-        ]
-        Resource = [
-          "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*/*${var.prefix}*",
-          "arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/${var.prefix}-*"
-        ]
-      },
-      {
-        Sid    = "ECSGlobalReadAndAutoscaling"
-        Effect = "Allow"
-        Action = [
-          "ecs:RegisterTaskDefinition",
-          "ecs:DeregisterTaskDefinition",
-          "ecs:DescribeTaskDefinition",
-          "ecr:GetAuthorizationToken",
-          "application-autoscaling:*"
+          "eks:CreateCluster",
+          "eks:DeleteCluster",
+          "eks:DescribeCluster",
+          "eks:UpdateClusterConfig",
+          "eks:UpdateClusterVersion",
+          "eks:CreateNodegroup",
+          "eks:DeleteNodegroup",
+          "eks:DescribeNodegroup",
+          "eks:UpdateNodegroupConfig",
+          "eks:UpdateNodegroupVersion",
+          "eks:DescribeUpdate",
+          "eks:TagResource",
+          "eks:UntagResource",
+          "eks:ListTagsForResource",
+          "eks:ListClusters",
+          "eks:ListNodegroups",
+          "eks:CreateAddon",
+          "eks:DeleteAddon",
+          "eks:DescribeAddon",
+          "eks:UpdateAddon",
+          "eks:CreateAccessEntry",
+          "eks:DeleteAccessEntry",
+          "eks:DescribeAccessEntry",
+          "eks:AssociateAccessPolicy",
+          "eks:DisassociateAccessPolicy"
         ]
         Resource = "*"
       },
-      # EC2/VPC Networking
+      # ECR: Repository Management for Container Images
+      {
+        Sid    = "ECRRepoManagement"
+        Effect = "Allow"
+        Action = [
+          "ecr:CreateRepository",
+          "ecr:DeleteRepository",
+          "ecr:DescribeRepositories",
+          "ecr:GetRepositoryPolicy",
+          "ecr:SetRepositoryPolicy",
+          "ecr:DeleteRepositoryPolicy",
+          "ecr:PutLifecyclePolicy",
+          "ecr:GetLifecyclePolicy",
+          "ecr:DeleteLifecyclePolicy",
+          "ecr:TagResource",
+          "ecr:UntagResource",
+          "ecr:ListTagsForResource"
+        ]
+        Resource = "arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/*"
+      },
+      # EC2/VPC Full Networking Access
       {
         Sid    = "EC2NetworkingAccess"
         Effect = "Allow"
         Action = [
           "ec2:Describe*",
+          "ec2:CreateVpc",
+          "ec2:DeleteVpc",
+          "ec2:ModifyVpcAttribute",
+          "ec2:CreateSubnet",
+          "ec2:DeleteSubnet",
+          "ec2:ModifySubnetAttribute",
+          "ec2:CreateRouteTable",
+          "ec2:DeleteRouteTable",
+          "ec2:CreateRoute",
+          "ec2:DeleteRoute",
+          "ec2:AssociateRouteTable",
+          "ec2:DisassociateRouteTable",
+          "ec2:CreateInternetGateway",
+          "ec2:DeleteInternetGateway",
+          "ec2:AttachInternetGateway",
+          "ec2:DetachInternetGateway",
+          "ec2:CreateNatGateway",
+          "ec2:DeleteNatGateway",
+          "ec2:AllocateAddress",
+          "ec2:ReleaseAddress",
+          "ec2:AssociateAddress",
+          "ec2:DisassociateAddress",
           "ec2:CreateSecurityGroup",
           "ec2:DeleteSecurityGroup",
           "ec2:AuthorizeSecurityGroupIngress",
@@ -121,11 +169,13 @@ resource "aws_iam_policy" "infra_scoped_policy" {
           "ec2:RevokeSecurityGroupIngress",
           "ec2:RevokeSecurityGroupEgress",
           "ec2:CreateTags",
-          "ec2:DeleteTags"
+          "ec2:DeleteTags",
+          "ec2:RunInstances",
+          "ec2:TerminateInstances"
         ]
         Resource = "*"
       },
-      # 2. CloudWatch Logs: Separate DescribeLogGroups (requires "*") from group-level actions
+      # CloudWatch Logs Management
       {
         Sid    = "LogsDescribeAction"
         Effect = "Allow"
@@ -134,22 +184,20 @@ resource "aws_iam_policy" "infra_scoped_policy" {
         ]
         Resource = "*"
       },
-      # CloudWatch Logs: Scoped to project prefix
       {
         Sid    = "LogsScopedAccess"
         Effect = "Allow"
         Action = [
           "logs:CreateLogGroup",
           "logs:DeleteLogGroup",
-          "logs:DescribeLogGroups",
           "logs:PutRetentionPolicy",
           "logs:ListTagsForResource",
           "logs:TagResource",
           "logs:UntagResource"
         ]
-        Resource = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/ecs/${var.prefix}-*"
+        Resource = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:*"
       },
-      # IAM Management: Scoped strictly to project roles and policies
+      # IAM Management: Scoped to Project Roles, Policies & OIDC Provider
       {
         Sid    = "IAMScopedToPrefix"
         Effect = "Allow"
@@ -174,14 +222,39 @@ resource "aws_iam_policy" "infra_scoped_policy" {
           "iam:TagRole",
           "iam:UntagRole",
           "iam:TagPolicy",
-          "iam:ListInstanceProfilesForRole", # <-- Required for Terraform role teardown
-          "iam:ListRoleTags",                # <-- Required for Terraform role read/refresh
-          "iam:UntagPolicy"
+          "iam:ListInstanceProfilesForRole",
+          "iam:ListRoleTags",
+          "iam:UntagPolicy",
+          # OIDC Identity Provider creation for IRSA
+          "iam:CreateOpenIDConnectProvider",
+          "iam:DeleteOpenIDConnectProvider",
+          "iam:GetOpenIDConnectProvider",
+          "iam:TagOpenIDConnectProvider",
+          "iam:UntagOpenIDConnectProvider"
         ]
         Resource = [
           "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.prefix}-*",
-          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/${var.prefix}-*"
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/*eks*",
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/${var.prefix}-*",
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/*"
         ]
+      },
+      # PassRole specifically for EKS and EC2 Worker Nodes
+      {
+        Sid    = "PassRoleForEKSServices"
+        Effect = "Allow"
+        Action = [
+          "iam:PassRole"
+        ]
+        Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/*"
+        Condition = {
+          StringEquals = {
+            "iam:PassedToService": [
+              "eks.amazonaws.com",
+              "ec2.amazonaws.com"
+            ]
+          }
+        }
       }
     ]
   })
@@ -211,13 +284,6 @@ data "aws_iam_policy_document" "app_trust" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # Locked strictly to main branch of app repo
-    # condition {
-    #   test     = "StringEquals"
-    #   variable = "token.actions.githubusercontent.com:sub"
-    #   values   = ["repo:${var.github_repository_username}/${var.github_app_repository_name}:ref:refs/heads/main"]
-    # }
-
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
@@ -227,19 +293,19 @@ data "aws_iam_policy_document" "app_trust" {
 }
 
 resource "aws_iam_role" "app_deployer_role" {
-  name               = "${var.prefix}-app-deployer-role" # KEPT EXACT SAME NAME
+  name               = "${var.prefix}-app-deployer-role"
   assume_role_policy = data.aws_iam_policy_document.app_trust.json
 
   tags = {
     Name    = "${var.prefix}-app-deployer-role"
-    Purpose = "CI/CD Role for Container App Deployment"
+    Purpose = "CI/CD Role for Container App Deployment to EKS"
   }
 }
 
-# Scoped App deployment permissions replacing ECR PowerUser and broad ECS policy
+# Scoped App deployment permissions for ECR and EKS deployments
 resource "aws_iam_policy" "app_scoped_policy" {
   name        = "${var.prefix}-app-deployer-least-privilege"
-  description = "Scoped permissions strictly required for CD image pushing and ECS service updates"
+  description = "Scoped permissions strictly required for ECR image push and EKS cluster deployment"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -253,7 +319,7 @@ resource "aws_iam_policy" "app_scoped_policy" {
         ]
         Resource = "*"
       },
-      # 2. Push rights restricted ONLY to app ECR repos
+      # 2. Push rights restricted to Retail Store microservice ECR repos
       {
         Sid    = "ECRPushRestricted"
         Effect = "Allow"
@@ -267,49 +333,21 @@ resource "aws_iam_policy" "app_scoped_policy" {
           "ecr:CompleteLayerUpload"
         ]
         Resource = [
-          "arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/${var.prefix}-flask-s3-service",
-          "arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/${var.prefix}-flask-sqs-service"
+          "arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/${var.prefix}-*",
+          "arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/swiftkart-*"
         ]
       },
-      # 3. ECS Update Service restricted ONLY to the target cluster & services
+      # 3. EKS DescribeCluster (required for `aws eks update-kubeconfig`)
       {
-        Sid    = "ECSUpdateRestricted"
+        Sid    = "EKSClusterDescribe"
         Effect = "Allow"
         Action = [
-          "ecs:UpdateService",
-          "ecs:DescribeServices"
+          "eks:DescribeCluster"
         ]
         Resource = [
-          "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:service/${var.prefix}-cluster/${var.prefix}-flask-s3-service",
-          "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:service/${var.prefix}-cluster/${var.prefix}-flask-sqs-service"
+          "arn:aws:eks:${var.aws_region}:${data.aws_caller_identity.current.account_id}:cluster/*${var.prefix}*",
+          "arn:aws:eks:${var.aws_region}:${data.aws_caller_identity.current.account_id}:cluster/*swiftkart*"
         ]
-      },
-      # 4. Describe Cluster & Task Definitions
-      {
-        Sid    = "ECSReadRestricted"
-        Effect = "Allow"
-        Action = [
-          "ecs:DescribeClusters",
-          "ecs:DescribeTaskDefinition",
-          "ecs:RegisterTaskDefinition"
-        ]
-        Resource = "*"
-      },
-      # 5. Restrict iam:PassRole strictly to ECS task roles and task execution
-      {
-        Sid    = "PassRoleRestrictedToECSTasks"
-        Effect = "Allow"
-        Action = [
-          "iam:PassRole"
-        ]
-        Resource = [
-          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.prefix}-*"
-        ]
-        Condition = {
-          StringEquals = {
-            "iam:PassedToService": "ecs-tasks.amazonaws.com"
-          }
-        }
       }
     ]
   })
