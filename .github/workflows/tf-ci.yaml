@@ -83,6 +83,12 @@ jobs:
           role-to-assume: ${{ vars.OIDC_ROLE }}
           aws-region: ${{ vars.AWS_REGION }}
 
+      - name: Verify Directory Layout
+        run: |
+          pwd
+          ls -la terraform/
+          ls -la terraform/envs/ || ls -la envs/
+
       - name: Terraform Init & Plan (Staging)
         working-directory: ./terraform
         run: |
