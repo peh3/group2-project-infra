@@ -44,7 +44,7 @@ jobs:
       - name: Assume Production Role (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_PROD_ROLE_ARN }}
+          role-to-assume: ${{ vars.OIDC_ROLE }}
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Terraform Apply Production
