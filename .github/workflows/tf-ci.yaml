@@ -31,7 +31,7 @@ jobs:
       - name: Secret Leak Detection (Gitleaks)
         uses: gitleaks/gitleaks-action@v2
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.APP_ACCESS_TOKEN }}
 
       # -------------------------------------------------------------
       # Gate 2: Code Formatting
@@ -114,7 +114,7 @@ jobs:
       - name: Post Plan Summary to PR
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.APP_ACCESS_TOKEN }}
           script: |
             const fs = require('fs');
             
