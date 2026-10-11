@@ -24,6 +24,8 @@ jobs:
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Required for Gitleaks to inspect the full PR commit range
 
       # -------------------------------------------------------------
       # Gate 1: Secret Leak Prevention
