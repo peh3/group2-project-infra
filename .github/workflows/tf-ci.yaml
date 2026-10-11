@@ -2,114 +2,144 @@ name: Terraform CI
 run-name: Running Terraform CI by ${{ github.actor }}
 
 on:
- pull_request:
-   branches:
-     - main
- workflow_dispatch:
+  pull_request:
+    paths:
+      - 'terraform/**'
+    branches:
+      - main
+  workflow_dispatch:
 
 permissions:
-  id-token: write   # Required for AWS OIDC authentication
-  contents: read
+  id-token: write         # For short-lived OIDC token generation
+  contents: read          # Read repo source
+  pull-requests: write    # Post plan diff comments back to the PR
 
 jobs:
-  Initial-Checks:
+  # =========================================================================
+  # 1. INFRASTRUCTURE LINT & SNYK SECURITY GATES
+  # =========================================================================
+  infra-security-and-lint:
+    name: "Infra Security Gates: Lint, Secret Scan & Snyk IaC"
     runs-on: ubuntu-latest
-
     steps:
-    - name: Getting initiator name
-      run: echo "Workflow initiated by ${{ github.actor }} from branch ${{ github.ref_name }}"
-
-  terraform-checks:
-    runs-on: ubuntu-latest
-    needs: Initial-Checks
-    outputs:
-      status: ${{ job.status }}
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v7
-
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v6
-      with:
-        role-to-assume: ${{ vars.OIDC_ROLE }}
-        aws-region: ${{ vars.AWS_REGION }}
-
-    - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v4
-
-    - name: Terraform fmt
-      id: fmt
-      run: terraform fmt -check
-
-    - name: Terraform Init
-      run: terraform init
-
-    - name: Terraform Validate
-      id: validate
-      run: terraform validate -no-color
-
-    - uses: terraform-linters/setup-tflint@v3
-      with:
-        tflint_version: latest
-    
-    - name: Show version
-      run: tflint --version
-
-    - name: Init TFLint
-      run: tflint --init
-
-    - name: Run TFLint
-      run: tflint -f compact
-
-    - name: Terraform Plan
-      id: plan
-      run: terraform plan -no-color
-
-  snyk-checks:
-    runs-on: ubuntu-latest
-    needs: terraform-checks
-    outputs:
-      status: ${{ job.status }}
-    steps:
-      - name: Check out repository code
+      - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      # -------------------------------------------------------------
+      # Gate 1: Secret Leak Prevention
+      # -------------------------------------------------------------
+      - name: Secret Leak Detection (Gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # -------------------------------------------------------------
+      # Gate 2: Code Formatting
+      # -------------------------------------------------------------
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
         with:
-          node-version: 22
+          terraform_version: 1.8.0
 
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive terraform/
+
+      # -------------------------------------------------------------
+      # Gate 3: Snyk IaC Misconfiguration Scan
+      # -------------------------------------------------------------
       - name: Install Snyk CLI
-        run: npm install -g snyk
+        uses: snyk/actions/setup@master
 
-      - name: Authenticate Snyk
-        run: snyk auth ${{ secrets.SNYK_TOKEN }}
+      - name: Run Snyk IaC Security Scan
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        # --severity-threshold=high ensures hard exit on HIGH and CRITICAL issues
+        # Fails the pipeline with non-zero exit code on violations
+        run: |
+          snyk iac test ./terraform \
+            --severity-threshold=high \
+            --scan=resource-changes
 
-      # 3. Infrastructure as Code (IaC) Scan on Terraform
-      - name: Run Snyk IaC Test
-        run: snyk iac test --severity-threshold=high
-
-  #################################################
-  # Finally, update summary for snyk-check        #
-  # Update needs statement to include snyk-checks #
-  #################################################
-  summary:
-    needs: [terraform-checks, snyk-checks] # add snyk-checks
-    if: always() 
+  # =========================================================================
+  # 2. SPECULATIVE TERRAFORM PLAN (STAGING & PRODUCTION)
+  # =========================================================================
+  infra-speculative-plan:
+    name: "Speculative Terraform Plan: Staging & Prod"
+    needs: infra-security-and-lint
     runs-on: ubuntu-latest
     steps:
-      - name: Adding markdown
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.8.0
+
+      # -------------------------------------------------------------
+      # Plan Staging
+      # -------------------------------------------------------------
+      - name: Configure AWS Credentials (Staging Read/Plan Role)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_STAGING_ROLE_ARN }}
+          aws-region: ap-southeast-1
+
+      - name: Terraform Init & Plan (Staging)
+        id: plan_staging
+        working-directory: ./terraform
         run: |
-          TF_STATUS=${{ needs.terraform-checks.outputs.status }}
-          SNYK_STATUS=${{ needs.snyk-checks.outputs.status }}
+          terraform init -reconfigure -backend-config=envs/staging.backend.hcl
+          terraform plan -no-color -var-file=envs/staging.tfvars -out=tfplan_staging > plan_staging.txt
 
-          echo '## 🚀 Preparing Build Summary 🚀' >> $GITHUB_STEP_SUMMARY
-          echo '' >> $GITHUB_STEP_SUMMARY
+      # -------------------------------------------------------------
+      # Plan Production (Read-only review artifact)
+      # -------------------------------------------------------------
+      - name: Configure AWS Credentials (Production Read/Plan Role)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PROD_ROLE_ARN }}
+          aws-region: ap-southeast-1
 
-          echo "| Job Name        | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----------------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| tf-check       | $TF_STATUS |" >> $GITHUB_STEP_SUMMARY
-          echo " snyk-check     | $SNYK_STATUS |" >> $GITHUB_STEP_SUMMARY
-          echo '' >> $GITHUB_STEP_SUMMARY
+      - name: Terraform Init & Plan (Production)
+        id: plan_prod
+        working-directory: ./terraform
+        run: |
+          terraform init -reconfigure -backend-config=envs/production.backend.hcl
+          terraform plan -no-color -var-file=envs/production.tfvars -out=tfplan_prod > plan_prod.txt
 
-          echo '## Job ran by: ${{ github.actor }}' >> $GITHUB_STEP_SUMMARY
+      # -------------------------------------------------------------
+      # Post Plan Output to PR Conversation
+      # -------------------------------------------------------------
+      - name: Post Plan Summary to PR
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            
+            const stagingPlan = fs.readFileSync('terraform/plan_staging.txt', 'utf8');
+            const prodPlan = fs.readFileSync('terraform/plan_prod.txt', 'utf8');
+            
+            const trimOutput = (str) => str.length > 50000 ? str.substring(str.length - 50000) : str;
+
+            const body = `### 📋 Speculative Infrastructure Plan Results (Snyk Verified)
+
+            #### 🧪 Staging Plan
+            \`\`\`hcl
+            ${trimOutput(stagingPlan)}
+            \`\`\`
+
+            #### 🚀 Production Plan
+            \`\`\`hcl
+            ${trimOutput(prodPlan)}
+            \`\`\`
+
+            *Commit: \`${context.sha}\`*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
