@@ -112,3 +112,13 @@ resource "helm_release" "kube_prometheus_stack" {
     value = "20Gi"
   }
 }
+################################################################################
+# 1. Monitoring Namespace
+################################################################################
+resource "kubernetes_namespace" "monitoring" {
+  metadata {
+    name = "monitoring"
+  }
+
+  depends_on = [module.eks]
+}
