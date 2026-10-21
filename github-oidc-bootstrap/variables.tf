@@ -38,5 +38,5 @@ variable "github_infra_repository_name" {
 variable "tfstate_bucket_name" {
   description = "S3 bucket storing terraform state"
   type        = string
-  default     = "sctp-tfstate-ce13"
+  default     = "sctp-core-tfstate"
 }

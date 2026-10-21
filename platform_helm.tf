@@ -76,8 +76,7 @@ resource "helm_release" "kube_prometheus_stack" {
   create_namespace = true
 
   depends_on = [
-    module.eks,
-    helm_release.ingress_nginx
+    module.eks
   ]
 
   # Grafana admin credentials & settings

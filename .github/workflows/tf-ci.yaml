@@ -47,6 +47,13 @@ jobs:
         role-to-assume: ${{ vars.OIDC_ROLE }}
         aws-region: ${{ vars.AWS_REGION }}
 
+    - name: Debug Identity and S3 Access
+      run: |
+        echo "=== Assumed Identity ==="
+        aws sts get-caller-identity
+        echo "=== Testing S3 Access ==="
+        aws s3 ls s3://sctp-core-tfstate/tk/
+
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v4
 
