@@ -3,8 +3,8 @@ run-name: Running Terraform CI by ${{ github.actor }}
 
 on:
   pull_request:
-    paths:
-      - 'terraform/**'
+    # paths:
+    #   - 'terraform/**'
     branches:
       - main
   workflow_dispatch:
