@@ -3,52 +3,54 @@ run-name: Running Terraform CD by ${{ github.actor }}
 
 on:
   push:
-    paths:
-      - 'terraform/**'
-    branches:
-      - main
+    branches: [ "main" ]
   workflow_dispatch:
 
 permissions:
-  id-token: write
-  contents: read
+  id-token: write       # Required for OIDC
+  contents: read        # To read repo content
 
 jobs:
-  deploy-staging:
+  CD:
     runs-on: ubuntu-latest
-    environment: staging
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
+    - name: Checkout
+      uses: actions/checkout@v4
+   
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v6
+      with:
+        role-to-assume: ${{ vars.OIDC_ROLE }}
+        aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Assume Staging Role (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.OIDC_ROLE }}
-          aws-region: ${{ vars.AWS_REGION }}
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v4
 
-      - name: Terraform Apply Staging
-        working-directory: ./terraform
-        run: |
-          terraform init -reconfigure -backend-config=envs/staging.backend.hcl
-          terraform apply -var-file=envs/staging.tfvars -auto-approve
+    - name: Terraform fmt
+      run: terraform fmt -check
 
-  deploy-production:
-    needs: deploy-staging
-    runs-on: ubuntu-latest
-    environment: production # Protected environment requiring manual approval
-    steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
+    - name: Terraform Init
+      run: terraform init
+       
+    - name: Terraform Validate
+      run: terraform validate
 
-      - name: Assume Production Role (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.OIDC_ROLE }}
-          aws-region: ${{ vars.AWS_REGION }}
+    - uses: terraform-linters/setup-tflint@v3
+      with:
+        tflint_version: latest
+   
+    - name: Show version
+      run: tflint --version
 
-      - name: Terraform Apply Production
-        working-directory: ./terraform
-        run: |
-          terraform init -reconfigure -backend-config=envs/production.backend.hcl
-          terraform apply -var-file=envs/production.tfvars -auto-approve
+    - name: Init TFLint
+      run: tflint --init
+
+    - name: Run TFLint
+      run: tflint -f compact
+   
+    - name: Terraform Plan
+      run: terraform plan
+
+    - name: Terraform Apply
+      run: terraform apply --auto-approve
