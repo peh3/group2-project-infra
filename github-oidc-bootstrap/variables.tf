@@ -1,6 +1,6 @@
 variable "aws_region" {
   type        = string
-  default     = "us-east-1"
+  default     = "ap-southeast-1"
   description = "AWS region for all resources"
 }
 variable "prefix" {
@@ -26,13 +26,13 @@ variable "github_repository_username" {
 variable "github_app_repository_name" {
   description = "GitHub repository name for application"
   type        = string
-  default     = "tk-tf-group2-app"
+  default     = "group2-project-app"
 }
 
 variable "github_infra_repository_name" {
   description = "GitHub repository name for Terraform infra"
   type        = string
-  default     = "tk-tf-group2-infra"
+  default     = "group2-project-infra"
 }
 
 variable "tfstate_bucket_name" {

@@ -55,7 +55,7 @@ jobs:
       run: terraform fmt -check
 
     - name: Terraform Init
-      run: terraform init
+      run: terraform init -reconfigure -upgrade
 
     - name: Terraform Validate
       id: validate
