@@ -1,47 +1,12 @@
 ################################################################################
-# 1. NGINX Ingress Controller
+# 1. Monitoring Namespace
 ################################################################################
-resource "helm_release" "ingress_nginx" {
-  name             = "ingress-nginx"
-  repository       = "https://kubernetes.github.io/ingress-nginx"
-  chart            = "ingress-nginx"
-  version          = "4.11.3"
-  namespace        = "ingress-nginx"
-  create_namespace = true
+resource "kubernetes_namespace" "monitoring" {
+  metadata {
+    name = "monitoring"
+  }
 
-  # Ensure the cluster is fully accessible before deploying
   depends_on = [module.eks]
-
-  set {
-    name  = "controller.service.annotations.service\\.beta\\.kubernetes\\.io/aws-load-balancer-scheme"
-    value = "internet-facing"
-  }
-
-  set {
-    name  = "controller.service.annotations.service\\.beta\\.kubernetes\\.io/aws-load-balancer-type"
-    value = "external"
-  }
-
-  set {
-    name  = "controller.service.annotations.service\\.beta\\.kubernetes\\.io/aws-load-balancer-nlb-target-type"
-    value = "ip"
-  }
-
-  # Export metrics for Prometheus scraping
-  set {
-    name  = "controller.metrics.enabled"
-    value = "true"
-  }
-
-  set {
-    name  = "controller.metrics.serviceMonitor.enabled"
-    value = "true"
-  }
-
-  set {
-    name  = "controller.metrics.serviceMonitor.namespace"
-    value = "monitoring"
-  }
 }
 
 ################################################################################
@@ -57,7 +22,6 @@ resource "helm_release" "cert_manager" {
 
   depends_on = [module.eks]
 
-  # Automatically install Certificate and Issuer CRDs
   set {
     name  = "crds.enabled"
     value = "true"
@@ -72,22 +36,17 @@ resource "helm_release" "kube_prometheus_stack" {
   repository       = "https://prometheus-community.github.io/helm-charts"
   chart            = "kube-prometheus-stack"
   version          = "65.5.0"
-  #namespace        = "monitoring"
-  namespace  = kubernetes_namespace.monitoring.metadata[0].name
+  namespace        = "monitoring"
   create_namespace = true
 
-  timeout         = 900
-  cleanup_on_fail = true
-  wait            = true
-
   depends_on = [
-    module.eks
+    module.eks,
+    helm_release.ingress_nginx
   ]
 
-  # Grafana admin credentials & settings
   set_sensitive {
     name  = "grafana.adminPassword"
-    value = "AdminSecurePass2026!" # Recommended to pass via var.grafana_admin_password
+    value = "AdminSecurePass2026!"
   }
 
   set {
@@ -100,7 +59,6 @@ resource "helm_release" "kube_prometheus_stack" {
     value = "10Gi"
   }
 
-  # Prometheus storage & retention
   set {
     name  = "prometheus.prometheusSpec.retention"
     value = "14d"
@@ -116,10 +74,31 @@ resource "helm_release" "kube_prometheus_stack" {
     value = "20Gi"
   }
 }
+################################################################################
+# 1. Monitoring Namespace
+################################################################################
 resource "kubernetes_namespace" "monitoring" {
   metadata {
     name = "monitoring"
   }
 
-  depends_on = [module.eks]
+  set {
+    name  = "controller.service.annotations.service\\.beta\\.kubernetes\\.io/aws-load-balancer-nlb-target-type"
+    value = "ip"
+  }
+
+  set {
+    name  = "controller.metrics.enabled"
+    value = "true"
+  }
+
+  set {
+    name  = "controller.metrics.serviceMonitor.enabled"
+    value = "true"
+  }
+
+  set {
+    name  = "controller.metrics.serviceMonitor.namespace"
+    value = kubernetes_namespace.monitoring.metadata[0].name
+  }
 }
