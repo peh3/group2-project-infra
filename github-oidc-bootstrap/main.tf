@@ -217,6 +217,9 @@ resource "aws_iam_policy" "infra_scoped_policy" {
           "iam:CreatePolicy",
           "iam:DeletePolicy",
           "iam:GetPolicy",
+          "iam:CreatePolicyVersion",
+          "iam:DeletePolicyVersion",
+          "iam:SetDefaultPolicyVersion",
           "iam:GetPolicyVersion",
           "iam:ListPolicyVersions",
           "iam:TagRole",
@@ -234,8 +237,11 @@ resource "aws_iam_policy" "infra_scoped_policy" {
         ]
         Resource = [
           "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.prefix}-*",
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/capstone-*",
           "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/*eks*",
           "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/${var.prefix}-*",
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/capstone-*",
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/*eks*",
           "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/*"
         ]
       },
@@ -249,12 +255,52 @@ resource "aws_iam_policy" "infra_scoped_policy" {
         Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/*"
         Condition = {
           StringEquals = {
-            "iam:PassedToService": [
+            "iam:PassedToService" : [
               "eks.amazonaws.com",
               "ec2.amazonaws.com"
             ]
           }
         }
+      },
+      {
+        Sid    = "AllowKMSKeyManagement"
+        Effect = "Allow"
+        Action = [
+          "kms:CreateKey",
+          "kms:DescribeKey",
+          "kms:EnableKey",
+          "kms:EnableKeyRotation",
+          "kms:GetKeyPolicy",
+          "kms:GetKeyRotationStatus",
+          "kms:ListResourceTags",
+          "kms:PutKeyPolicy",
+          "kms:ScheduleKeyDeletion",
+          "kms:TagResource",
+          "kms:UntagResource",
+          "kms:CreateAlias",
+          "kms:DeleteAlias",
+          "kms:UpdateAlias"
+        ]
+        Resource = "*"
+      },
+      {
+        "Sid": "AllowKMSListAliases",
+        "Effect": "Allow",
+        "Action": [
+          "kms:ListAliases",
+          "kms:DescribeKey"
+        ],
+        "Resource": "*"
+      },
+      {
+        "Sid": "AllowEKSAccessPolicyRead",
+        "Effect": "Allow",
+        "Action": [
+          "eks:ListAssociatedAccessPolicies",
+          "eks:DescribeAccessEntry",
+          "eks:ListAccessEntries"
+        ],
+        "Resource": "*"
       }
     ]
   })

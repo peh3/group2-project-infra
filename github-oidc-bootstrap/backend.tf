@@ -1,7 +1,7 @@
 terraform {
   backend "s3" {
-    bucket = "sctp-tfstate-ce13"
-    key    = "group2/group2-infra-github-iam-boostrap.tfstate"
-    region = "us-east-1"
+    key    = "tk/tk-tf-group2-infra-github-oidc-boostrap.tfstate"
+    bucket = "sctp-core-tfstate"
+    region = "ap-southeast-1"
   }
 }

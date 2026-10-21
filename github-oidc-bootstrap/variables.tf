@@ -5,12 +5,12 @@ variable "aws_region" {
 }
 variable "prefix" {
   type        = string
-  default     = "group2-project"
+  default     = "tk-tf"
   description = "Prefix for all resources"
 }
 variable "name" {
   type        = string
-  default     = "group2"
+  default     = "tk-tf"
   description = "Name for all resources"
 }
 
@@ -26,13 +26,13 @@ variable "github_repository_username" {
 variable "github_app_repository_name" {
   description = "GitHub repository name for application"
   type        = string
-  default     = "group2-project-app"
+  default     = "tk-tf-group2-app"
 }
 
 variable "github_infra_repository_name" {
   description = "GitHub repository name for Terraform infra"
   type        = string
-  default     = "group2-project-infra"
+  default     = "tk-tf-group2-infra"
 }
 
 variable "tfstate_bucket_name" {
