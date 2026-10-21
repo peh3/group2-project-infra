@@ -159,8 +159,28 @@ resource "helm_release" "external_dns" {
   }
 
   set {
+    name  = "zoneIdFilters[0]"
+    value = "Z00541411T1NGPV97B5C0"
+  }
+
+  set {
+    name  = "domainFilters[0]"
+    value = "sctp-sandbox.com"
+  }
+
+  set {
     name  = "policy"
-    value = "sync" # Use 'upsert-only' if you don't want external-dns deleting records
+    value = "sync"
+  }
+
+  set {
+    name  = "registry"
+    value = "txt"
+  }
+
+  set {
+    name  = "txtOwnerId"
+    value = "tk-tf-cluster"
   }
 }
 
