@@ -20,6 +20,9 @@ resource "helm_release" "cert_manager" {
   namespace        = "cert-manager"
   create_namespace = true
 
+  timeout         = 900
+  cleanup_on_fail = true
+
   depends_on = [module.eks]
 
   set {
@@ -32,16 +35,18 @@ resource "helm_release" "cert_manager" {
 # 3. Observability: kube-prometheus-stack (Prometheus + Grafana)
 ################################################################################
 resource "helm_release" "kube_prometheus_stack" {
-  name             = "kube-prometheus-stack"
-  repository       = "https://prometheus-community.github.io/helm-charts"
-  chart            = "kube-prometheus-stack"
-  version          = "65.5.0"
-  namespace        = "monitoring"
-  create_namespace = true
+  name       = "kube-prometheus-stack"
+  repository = "https://prometheus-community.github.io/helm-charts"
+  chart      = "kube-prometheus-stack"
+  version    = "65.5.0"
+  namespace  = kubernetes_namespace.monitoring.metadata[0].name
+
+  timeout         = 900
+  cleanup_on_fail = true
 
   depends_on = [
     module.eks,
-    helm_release.ingress_nginx
+    kubernetes_namespace.monitoring
   ]
 
   set_sensitive {
@@ -74,12 +79,36 @@ resource "helm_release" "kube_prometheus_stack" {
     value = "20Gi"
   }
 }
+
 ################################################################################
-# 1. Monitoring Namespace
+# 4. NGINX Ingress Controller
 ################################################################################
-resource "kubernetes_namespace" "monitoring" {
-  metadata {
-    name = "monitoring"
+resource "helm_release" "ingress_nginx" {
+  name             = "ingress-nginx"
+  repository       = "https://kubernetes.github.io/ingress-nginx"
+  chart            = "ingress-nginx"
+  version          = "4.11.3"
+  namespace        = "ingress-nginx"
+  create_namespace = true
+
+  timeout         = 900
+  cleanup_on_fail = true
+
+  # Must wait for kube-prometheus-stack to install the ServiceMonitor CRD
+  depends_on = [
+    module.eks,
+    kubernetes_namespace.monitoring,
+    helm_release.kube_prometheus_stack
+  ]
+
+  set {
+    name  = "controller.service.annotations.service\\.beta\\.kubernetes\\.io/aws-load-balancer-scheme"
+    value = "internet-facing"
+  }
+
+  set {
+    name  = "controller.service.annotations.service\\.beta\\.kubernetes\\.io/aws-load-balancer-type"
+    value = "external"
   }
 
   set {
