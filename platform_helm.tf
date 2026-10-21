@@ -72,12 +72,16 @@ resource "helm_release" "kube_prometheus_stack" {
   repository       = "https://prometheus-community.github.io/helm-charts"
   chart            = "kube-prometheus-stack"
   version          = "65.5.0"
-  namespace        = "monitoring"
+  #namespace        = "monitoring"
+  namespace  = kubernetes_namespace.monitoring.metadata[0].name
   create_namespace = true
 
+  timeout         = 900
+  cleanup_on_fail = true
+  wait            = true
+
   depends_on = [
-    module.eks,
-    helm_release.ingress_nginx
+    module.eks
   ]
 
   # Grafana admin credentials & settings
@@ -112,9 +116,6 @@ resource "helm_release" "kube_prometheus_stack" {
     value = "20Gi"
   }
 }
-################################################################################
-# 1. Monitoring Namespace
-################################################################################
 resource "kubernetes_namespace" "monitoring" {
   metadata {
     name = "monitoring"
