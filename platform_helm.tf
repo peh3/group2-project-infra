@@ -72,8 +72,13 @@ resource "helm_release" "kube_prometheus_stack" {
   repository       = "https://prometheus-community.github.io/helm-charts"
   chart            = "kube-prometheus-stack"
   version          = "65.5.0"
-  namespace        = "monitoring"
+  #namespace        = "monitoring"
+  namespace  = kubernetes_namespace.monitoring.metadata[0].name
   create_namespace = true
+
+  timeout         = 900
+  cleanup_on_fail = true
+  wait            = true
 
   depends_on = [
     module.eks
@@ -110,4 +115,12 @@ resource "helm_release" "kube_prometheus_stack" {
     name  = "prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.resources.requests.storage"
     value = "20Gi"
   }
+}
+
+resource "kubernetes_namespace" "monitoring" {
+  metadata {
+    name = "monitoring"
+  }
+
+  depends_on = [module.eks]
 }
